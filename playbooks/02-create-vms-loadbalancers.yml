@@ -1,0 +1,89 @@
+- name: Create VMs (k8s + bastion)
+  hosts: proxmox-server
+  gather_facts: no
+  vars:
+    template_vmid: 9000
+    vms:
+      # ---------------- Load Balancers ----------------
+      - { name: lb-1, vmid: 100, bridge: vmbr1, ip: 192.168.100.21/24, gateway: 192.168.100.1, disk: 10G }
+      - { name: lb-2, vmid: 107, bridge: vmbr1, ip: 192.168.100.22/24, gateway: 192.168.100.1, disk: 10G }
+
+  tasks:
+
+  - name: Clone VMs
+    command: /usr/sbin/qm clone {{ template_vmid }} {{ item.vmid }} --name {{ item.name }} --full
+    loop: "{{ vms }}"
+    become: yes
+    register: clone_result
+    changed_when: clone_result.rc == 0
+    failed_when: clone_result.rc != 0 and "already exists" not in clone_result.stderr
+
+  - name: Resize disks
+    command: /usr/sbin/qm resize {{ item.vmid }} scsi0 {{ item.disk }}
+    loop: "{{ vms }}"
+    become: yes
+
+  - name: Configure networking + cloud-init
+    command: >
+      /usr/sbin/qm set {{ item.vmid }}
+      --net0 "virtio,bridge={{ item.bridge }}"
+      --ipconfig0 "ip={{ item.ip }},gw={{ item.gateway }}"
+      --ciuser "ansible"
+      --sshkeys /root/.ssh/authorized_keys
+    loop: "{{ vms }}"
+    become: yes
+
+  - name: Check VM status
+    command: /usr/sbin/qm status {{ item.vmid }}
+    loop: "{{ vms }}"
+    register: vm_status
+    become: yes
+
+  - name: Update cloud-init config (force update to apply new IPs)
+    command: >
+      /usr/sbin/qm cloudinit update {{ item.item.vmid }}
+    loop: "{{ vm_status.results }}"
+    become: yes
+
+  - name: Start or reboot VMs
+    command: >
+      /usr/sbin/qm {{ 'reset' if 'running' in item.stdout else 'start' }} {{ item.item.vmid }}
+    loop: "{{ vm_status.results }}"
+    become: yes
+
+# 🔧 Configure all machines
+- name: Configure VMs (disk + base setup)
+  hosts: k8s_all
+  become: yes
+  gather_facts: no
+
+  tasks:
+  - name: Install required packages
+    apt:
+      name:
+        - cloud-guest-utils
+        - net-tools
+        - curl
+        - vim
+      state: present
+      update_cache: yes
+    register: apt_result
+    retries: 5
+    delay: 10
+    until: apt_result is success
+
+  - name: Detect disk
+    shell: lsblk -ndo NAME,TYPE | awk '$2=="disk"{print $1; exit}'
+    register: disk_name
+
+  - name: Expand partition
+    command: "growpart /dev/{{ disk_name.stdout }} 1"
+    register: growpart_result
+    failed_when: false
+    changed_when: "'CHANGED' in growpart_result.stdout"
+
+  - name: Resize filesystem
+    command: "resize2fs /dev/{{ disk_name.stdout }}1"
+    become: yes
+    register: resizefs_result
+    failed_when: false

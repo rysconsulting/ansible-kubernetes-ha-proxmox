@@ -1,0 +1,41 @@
+- name: Configure Proxmox SDN
+  hosts: proxmox-server
+  #connection: local
+  tasks:
+    - name: Create Simple Zone
+      proxmox_sdn_zones:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        zone: "k8szone"
+        type: simple
+        state: present
+
+    - name: Create VNets
+      proxmox_sdn_vnets:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        vnet: "{{ item.vnet }}"
+        zone: "k8szone"
+        state: present
+      loop:
+        - { vnet: 'VNetCP' }
+        - { vnet: 'VNtWrkrA' }
+        - { vnet: 'VNtWrkrB' }
+
+    - name: Create Subnets
+      proxmox_sdn_subnets:
+        api_host: "{{ proxmox_host }}"
+        api_user: "{{ proxmox_user }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        vnet: "{{ item.vnet }}"
+        subnet: "{{ item.cidr }}"
+        state: present
+      loop:
+        - { vnet: 'VNetCP', cidr: '192.168.100.0/24' }
+        - { vnet: 'VNtWrkrA', cidr: '192.168.120.0/24' }
+        - { vnet: 'VNtWrkrB', cidr: '192.168.130.0/24' }

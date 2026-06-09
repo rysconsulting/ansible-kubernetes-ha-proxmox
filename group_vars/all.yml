@@ -1,0 +1,17 @@
+# Common settings for all Kubernetes nodes
+k8s_version: "1.30"
+pod_network_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+cluster_name: "ha-cluster"
+
+# VIP for kube-vip (BGP mode)
+kube_vip_ip: "192.168.100.100"
+kube_vip_interface: "eth0"
+
+# BGP settings (for OPNsense peer)
+bgp_asn: 65000
+bgp_peer_asn: 65001
+bgp_peer_address: "192.168.100.1"   # OPNsense IP on control plane subnet
+
+# Container runtime
+container_runtime: "containerd"

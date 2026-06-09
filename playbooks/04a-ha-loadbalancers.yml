@@ -1,0 +1,74 @@
+- name: Configure HAProxy + Keepalived on load balancers
+  hosts: load_balancers
+  become: yes
+
+  vars:
+    vip_address: "192.168.100.100"
+    interface: "eth0"
+    router_id: 51
+
+  tasks:
+
+    - name: Install packages
+      apt:
+        name:
+          - haproxy
+          - keepalived
+        state: present
+        update_cache: yes
+
+    - name: Enable non-local bind (required for VIP)
+      sysctl:
+        name: net.ipv4.ip_nonlocal_bind
+        value: '1'
+        state: present
+        reload: yes
+
+    # ---------------- HAProxy ----------------
+
+    - name: Configure HAProxy
+      template:
+        src: /Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/k8s/templates/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+      notify: restart haproxy
+
+    - name: Validate HAProxy config
+      command: haproxy -c -f /etc/haproxy/haproxy.cfg
+
+    # ---------------- Keepalived ----------------
+
+    - name: Configure Keepalived
+      template:
+        src: /Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/k8s/templates/keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+      notify: restart keepalived
+
+    # ---------------- Services ----------------
+
+    - name: Reset haproxy failed state
+      command: systemctl reset-failed haproxy
+      ignore_errors: yes
+
+    - name: Ensure keepalived is running
+      systemd:
+        name: keepalived
+        enabled: yes
+        state: restarted
+
+    - name: Ensure haproxy is running
+      systemd:
+        name: haproxy
+        enabled: yes
+        state: restarted
+
+  handlers:
+
+    - name: restart haproxy
+      systemd:
+        name: haproxy
+        state: restarted
+
+    - name: restart keepalived
+      systemd:
+        name: keepalived
+        state: restarted

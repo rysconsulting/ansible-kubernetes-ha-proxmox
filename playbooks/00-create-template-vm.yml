@@ -1,0 +1,71 @@
+- name: Build Ubuntu 22.04 VM template using qm commands
+  hosts: proxmox-server
+  gather_facts: yes
+  vars:
+    ubuntu_cloud_image_url: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+    template_vm_name: "ubuntu-22.04-template"
+    template_vm_id: 9000
+    local_image_path: "/tmp/ubuntu-22.04-cloudimg.img"
+    ssh_pub_key: "{{ lookup('file', '/Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/k8s/ubuntu_key.pub') }}"
+
+  tasks:
+    - name: Download Ubuntu cloud image to Proxmox host
+      get_url:
+        url: "{{ ubuntu_cloud_image_url }}"
+        dest: "{{ local_image_path }}"
+        mode: '0644'
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Create VM without disk
+      command: "qm create {{ template_vm_id }} --memory 4096 --cores 2 --name {{ template_vm_name }} --net0 virtio,bridge=vmbr0"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Set SCSI controller (CRITICAL FIX)
+      command: "qm set {{ template_vm_id }} --scsihw virtio-scsi-pci"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Import cloud image as disk
+      command: "qm importdisk {{ template_vm_id }} {{ local_image_path }} local-lvm"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Attach disk as scsi0 and set boot order
+      command: "qm set {{ template_vm_id }} --scsi0 local-lvm:vm-{{ template_vm_id }}-disk-0 --boot order=scsi0"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Add cloud-init drive
+      command: "qm set {{ template_vm_id }} --ide2 local-lvm:cloudinit"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Configure serial console (FIXES NO LOGIN ISSUE)
+      command: "qm set {{ template_vm_id }} --serial0 socket --vga serial0"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Write SSH public key to temporary file on Proxmox host
+      ansible.builtin.copy:
+        content: "{{ lookup('file', '/Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/k8s/ubuntu_key.pub') }}"
+        dest: "/tmp/ubuntu_key.pub"
+        mode: '0644'
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Set cloud-init user and SSH key
+      command: "qm set 9000 --ciuser ansible --sshkeys /tmp/ubuntu_key.pub"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Set DHCP networking
+      command: "qm set {{ template_vm_id }} --ipconfig0 ip=dhcp"
+      delegate_to: proxmox-server
+      become: yes
+
+    - name: Convert to template
+      command: "qm template {{ template_vm_id }}"
+      delegate_to: proxmox-server
+      become: yes

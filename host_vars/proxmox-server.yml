@@ -1,0 +1,8 @@
+proxmox_host: "192.168.220.113"   # Your Proxmox IP
+proxmox_user: "ansible@pve"
+proxmox_token_id: "ansible_token"
+proxmox_token_secret: "58e9a477-e602-4e1b-b57e-37ba154b799f"
+proxmox_root_user: "root@pam"
+proxmox_root_token_id: "root_token"
+proxmox_root_token_secret: "329a331b-9a32-40f5-b5f0-8c1ed1f2cf99"
+proxmox_root_password: "=t7)rn$Rn4|63CTP"

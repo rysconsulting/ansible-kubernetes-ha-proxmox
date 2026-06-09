@@ -1,0 +1,65 @@
+#🚀 How to run
+# $ ansible-playbook -i inventory.ini reset-cluster.yml
+# This playbook will reset the Kubernetes cluster on all nodes, allowing you to start fresh with a new installation. It performs the following steps:
+# 1. Runs `kubeadm reset` to clean up the cluster state on each node.
+# 2. Restarts the kubelet service to ensure it's in a clean state.
+# 3. Removes existing CNI configurations to prevent conflicts with new network plugins.
+# 4. Flushes iptables rules to clear any leftover network configurations from the previous cluster.
+
+- name: Reset Kubernetes cluster on all nodes
+  hosts: k8s_all
+  become: yes
+  tasks:
+
+    - name: Run kubeadm reset
+      command: kubeadm reset -f
+      ignore_errors: yes
+
+    - name: Restart kubelet
+      systemd:
+        name: kubelet
+        state: stopped
+      ignore_errors: yes
+
+    - name: Remove Kubernetes directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/etcd
+        - /var/lib/kubelet
+        - /etc/cni/net.d
+
+    - name: Restart kubelet
+      systemd:
+        name: kubelet
+        state: started
+      ignore_errors: yes
+
+    - name: Flush iptables
+      shell: |
+        iptables -F
+        iptables -t nat -F
+        iptables -t mangle -F
+        iptables -X
+      ignore_errors: yes
+
+- name: Stop load balancer services on control planes
+  hosts: k8s_control_plane
+  become: yes
+  tasks:
+
+    - name: Stop HAProxy
+      systemd:
+        name: haproxy
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Stop Keepalived
+      systemd:
+        name: keepalived
+        state: stopped
+        enabled: no
+      ignore_errors: yes

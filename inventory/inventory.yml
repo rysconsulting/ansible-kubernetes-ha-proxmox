@@ -1,0 +1,70 @@
+all:
+  vars:
+    ansible_user: ansible
+    ansible_ssh_private_key_file: "/Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/proxmox_key"
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=no
+      -o UserKnownHostsFile=/dev/null
+
+  hosts:
+    proxmox-server:
+      ansible_host: 192.168.220.113
+      ansible_user: proxmox
+      ansible_ssh_private_key_file: "/Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/proxmox_key"
+      ansible_python_interpreter: /usr/bin/python3
+
+    vyos-router:
+      ansible_host: 192.168.220.119
+      ansible_user: vyos
+      ansible_password: vyos
+      ansible_ssh_private_key_file: "/Users/roysakai/Documents/DevOPS/MyProjects/Proxmox/proxmox_key"
+      ansible_network_os: vyos.vyos.vyos
+      ansible_connection: network_cli
+      ansible_ssh_common_args: >-
+        -o HostKeyAlgorithms=ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384
+        -o PubkeyAcceptedKeyTypes=ssh-rsa,ecdsa-sha2-nistp256
+      ansible_host_key_checking: false
+
+#    bastion:
+#      ansible_host: 192.168.220.200
+#      ansible_user: ansible
+
+  children:
+    load_balancers:
+      hosts:
+        lb-1:
+          ansible_host: 192.168.100.21
+        lb-2:
+          ansible_host: 192.168.100.22
+          
+    k8s_control_plane:
+      hosts:
+        cp-1:
+          ansible_host: 192.168.100.11
+        cp-2:
+          ansible_host: 192.168.100.12
+        cp-3:
+          ansible_host: 192.168.100.13
+
+    k8s_workers:
+      hosts:
+        worker-1:
+          ansible_host: 192.168.120.11
+        worker-2:
+          ansible_host: 192.168.120.12
+        worker-3:
+          ansible_host: 192.168.130.11
+
+    k8s_all:
+      children:
+        k8s_control_plane:
+        k8s_workers:
+
+      vars:
+        ansible_user: ansible
+        ansible_ssh_private_key_file: ./ubuntu_key
+        ansible_ssh_common_args: >-
+          -o ForwardAgent=yes
+          -o StrictHostKeyChecking=no
+          -o UserKnownHostsFile=/dev/null
+          -o ProxyCommand="ssh -W %h:%p -i ../proxmox_key vyos@192.168.220.120"

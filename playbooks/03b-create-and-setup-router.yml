@@ -1,0 +1,83 @@
+- name: Deploy VyOS Router
+  hosts: proxmox-server
+  become: yes
+
+  vars:
+    vmid: 200
+    template_id: 9001
+    name: vyos-router
+
+  tasks:
+
+    - name: Check if VM exists
+      command: qm status {{ vmid }}
+      register: vm_status
+      failed_when: false
+      changed_when: false
+
+    - name: Clone template
+      command: qm clone {{ template_id }} {{ vmid }} --name {{ name }} --full
+      when: vm_status.rc != 0
+
+    - name: Configure NICs (CRITICAL)
+      command: >
+        qm set {{ vmid }}
+        --net0 virtio,bridge=vmbr0
+        --net1 virtio,bridge=vmbr1
+        --net2 virtio,bridge=vmbr2
+        --net3 virtio,bridge=vmbr3
+
+    - name: Start VM
+      command: qm start {{ vmid }}
+
+
+- name: Wait for VyOS SSH
+  hosts: localhost
+  tasks:
+    - name: Wait for SSH
+      wait_for:
+        host: 192.168.220.200
+        port: 22
+        timeout: 300
+
+
+- name: Configure VyOS
+  hosts: vyos-router
+  gather_facts: no
+
+  tasks:
+
+    - name: Configure base networking
+      vyos_config:
+        lines:
+          # Interfaces
+          - set interfaces ethernet eth0 address 192.168.220.200/24
+          - set interfaces ethernet eth1 address 192.168.100.1/24
+          - set interfaces ethernet eth2 address 192.168.120.1/24
+          - set interfaces ethernet eth3 address 192.168.130.1/24
+
+          # Default route
+          - set protocols static route 0.0.0.0/0 next-hop 192.168.220.1
+
+          # NAT
+          - set nat source rule 10 outbound-interface eth0
+          - set nat source rule 10 source address 192.168.100.0/24
+          - set nat source rule 10 translation address masquerade
+
+          - set nat source rule 20 outbound-interface eth0
+          - set nat source rule 20 source address 192.168.120.0/24
+          - set nat source rule 20 translation address masquerade
+
+          - set nat source rule 30 outbound-interface eth0
+          - set nat source rule 30 source address 192.168.130.0/24
+          - set nat source rule 30 translation address masquerade
+
+          # DNS
+          - set service dns forwarding listen-address 192.168.100.1
+          - set service dns forwarding listen-address 192.168.120.1
+          - set service dns forwarding listen-address 192.168.130.1
+          - set service dns forwarding allow-from 192.168.0.0/16
+          - set service dns forwarding name-server 1.1.1.1
+          - set service dns forwarding name-server 8.8.8.8
+
+        save: yes

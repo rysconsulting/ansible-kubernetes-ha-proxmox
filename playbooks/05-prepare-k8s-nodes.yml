@@ -1,0 +1,121 @@
+- name: Prepare all Kubernetes nodes
+  hosts: k8s_all
+  become: yes
+  tasks:
+    - name: Disable swap
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Remove swap entry from fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^.*swap.*$'
+        state: absent
+
+    - name: Load kernel modules for containerd
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Set sysctl parameters for Kubernetes
+      sysctl:
+        name: "{{ item }}"
+        value: "1"
+        state: present
+        reload: yes
+      loop:
+        - net.bridge.bridge-nf-call-iptables
+        - net.bridge.bridge-nf-call-ip6tables
+        - net.ipv4.ip_forward
+
+    - name: Install containerd
+      package:
+        name: containerd
+        state: present
+        update_cache: yes
+      
+    - name: Ensure containerd config directory exists
+      file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+      become: yes
+
+#    - name: Check if containerd config exists
+#      stat:
+#        path: /etc/containerd/config.toml
+#      register: containerd_config
+
+    - name: Generate default containerd config to a temporary file
+      shell: containerd config default
+      register: containerd_default_config
+      become: yes
+
+    - name: Write config to disk
+      copy:
+        content: "{{ containerd_default_config.stdout }}"
+        dest: /etc/containerd/config.toml
+        mode: '0644'
+      become: yes
+
+#    - name: Generate default config if missing
+#      command: containerd config default > /etc/containerd/config.toml
+#      when: not containerd_config.stat.exists
+
+#    - name: Create default containerd configuration
+#      command: containerd config default > /etc/containerd/config.toml
+#      args:
+#        creates: /etc/containerd/config.toml
+#      when: ansible_facts.packages['containerd'] is defined or true
+
+    - name: Enable systemd cgroup driver in containerd
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^(\s*)SystemdCgroup = false'
+        line: '\1SystemdCgroup = true'
+        backrefs: yes
+
+    - name: Restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+
+    - name: Install Kubernetes packages
+      block:
+        - name: Add Kubernetes apt key
+          apt_key:
+            url: https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key
+            state: present
+
+        - name: Add Kubernetes repository
+          apt_repository:
+            repo: "deb https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/ /"
+            state: present
+
+        - name: Install kubelet, kubeadm, kubectl
+          apt:
+            name:
+              - kubelet
+              - kubeadm
+              - kubectl
+              - net-tools
+            state: present
+            update_cache: yes
+
+        - name: Hold Kubernetes packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: hold
+          loop:
+            - kubelet
+            - kubeadm
+            - kubectl
+
+    - name: Enable kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
